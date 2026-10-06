@@ -309,7 +309,7 @@ def test_microbatch_scopes_context(distributed_setup):
     assert context.is_last_microbatch
 
 
-def test_combined_scheduler_uses_grads_ready(distributed_setup):
+def test_combined_scheduler_uses_post_accumulate_grad(distributed_setup):
     """The manual scheduler still reduces when parameter gradients become ready."""
     device = distributed_setup.device
     mesh = init_device_mesh(device.type, (distributed_setup.world_size,))
