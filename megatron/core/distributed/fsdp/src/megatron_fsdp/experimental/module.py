@@ -420,7 +420,7 @@ class FsdpModule:
         module = cast(nn.Module, self)
         module_ref = ref(self)
 
-        def parameter_post_accumulate_grad_hook(_: nn.Parameter) -> None:
+        def post_accumulate_grad_hook_per_parameter(_: nn.Parameter) -> None:
             module = module_ref()
             if module is None:
                 return
@@ -436,7 +436,7 @@ class FsdpModule:
                 # gradients are materialized by ``backward_dw()``, not autograd.
                 if not getattr(parameter, "skip_backward_post_hook", False):
                     parameter.register_post_accumulate_grad_hook(
-                        parameter_post_accumulate_grad_hook
+                        post_accumulate_grad_hook_per_parameter
                     )
                     continue
                 if len(fsdp_parameter.fqns) > 1:
@@ -447,7 +447,7 @@ class FsdpModule:
                     )
                 parameter_module, _ = get_parameter_owner(module, fsdp_parameter.fqns[0])
                 parameter_module.register_wgrad_accumulation_and_reduce_hooks(
-                    lambda parameter=parameter: parameter_post_accumulate_grad_hook(parameter)
+                    lambda parameter=parameter: post_accumulate_grad_hook_per_parameter(parameter)
                 )
 
     @staticmethod
