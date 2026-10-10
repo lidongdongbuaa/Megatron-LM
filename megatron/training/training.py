@@ -2199,7 +2199,8 @@ def pretrain(
                 opt_param_scheduler,
                 num_floating_point_operations_so_far,
                 checkpointing_context,
-                train_data_iterator=train_data_iterator
+                train_data_iterator=train_data_iterator,
+                callback_manager=callback_manager,
             )
 
         one_logger and one_logger.log_metrics(
@@ -3865,6 +3866,8 @@ def training_log(
             writer.add_scalar('max_attention_logit', max_attention_logit, iteration)
             if wandb_writer:
                 wandb_writer.log({'max_attention_logit': max_attention_logit}, iteration)
+        callback_manager.callback_context.batch_size = batch_size
+        callback_manager.trigger("on_tensorboard_log")
     # Log MoE metrics.
     moe_log_string = ""
     if args.num_experts is not None:
@@ -4104,6 +4107,9 @@ def training_log(
         log_fragments: list[str] = []
         callback_manager.callback_context.log_fragments = log_fragments
         callback_manager.callback_context.timers_to_log = timers_to_log
+        callback_manager.callback_context.batch_size = batch_size
+        callback_manager.callback_context.elapsed_time_per_iteration = elapsed_time_per_iteration
+        callback_manager.callback_context.throughput = throughput if cfg.logger.log_throughput else None
         callback_manager.trigger("on_log")
         log_string += "".join(log_fragments)
         print_rank_last(log_string)
@@ -4265,6 +4271,12 @@ def force_param_sync(model_chunks, optimizer=None) -> None:
         model_chunk.start_param_sync(force_sync=True)
 
 
+def _notify_checkpoint_saved(callback_manager, iteration):
+    """Fire on_checkpoint_saved for the checkpoint of ``iteration`` once it is durable."""
+    callback_manager.callback_context.durable_iteration = iteration
+    callback_manager.trigger("on_checkpoint_saved")
+
+
 def save_checkpoint_and_time(
     iteration,
     model,
@@ -4274,11 +4286,17 @@ def save_checkpoint_and_time(
     checkpointing_context,
     non_persistent_ckpt=False,
     train_data_iterator=None,
+    callback_manager=None,
 ):
+    callback_manager = normalize_callbacks(callback_manager)
     cfg = get_run_config()
     args = get_args()
     timers = get_timers()
     energy_monitor = get_energy_monitor()
+
+    on_saved = None
+    if callback_manager.has_callbacks("on_checkpoint_saved"):
+        on_saved = functools.partial(_notify_checkpoint_saved, callback_manager, iteration)
 
     # OTel: single goodput span parenting ALL exposed (main-thread) checkpoint
     # cost -- the total wall-clock the training loop is blocked on the checkpoint:
@@ -4362,6 +4380,7 @@ def save_checkpoint_and_time(
                 expt_dp_group=expt_dp_group,
                 rng_state_key_prefix=rng_state_key_prefix,
                 cp_group=cp_group,
+                on_saved=on_saved,
             )
 
             # Stop timer and compute time elapsed to save checkpoint. Stop timer before timers.log() call as it resets the timer.
@@ -4525,6 +4544,7 @@ def checkpoint_and_decide_exit(
     num_floating_point_operations_so_far,
     checkpointing_context,
     train_data_iterator,
+    callback_manager=None,
 ):
     """Save checkpoint and decide whether to exit based on arguments (e.g., if
     --exit-duration-in-mins is set). Actual exit happens in main training loop
@@ -4546,6 +4566,7 @@ def checkpoint_and_decide_exit(
                     num_floating_point_operations_so_far,
                     checkpointing_context,
                     train_data_iterator=train_data_iterator,
+                    callback_manager=callback_manager,
                 )
             print_datetime('exiting program after receiving SIGTERM.')
 
@@ -4561,6 +4582,7 @@ def checkpoint_and_decide_exit(
             num_floating_point_operations_so_far,
             checkpointing_context,
             train_data_iterator=train_data_iterator,
+            callback_manager=callback_manager,
         )
         saved_checkpoint = True
 
@@ -4578,6 +4600,7 @@ def checkpoint_and_decide_exit(
             checkpointing_context,
             non_persistent_ckpt=True,
             train_data_iterator=train_data_iterator,
+            callback_manager=callback_manager,
         )
         saved_checkpoint = True
 
@@ -4603,6 +4626,7 @@ def checkpoint_and_decide_exit(
                     num_floating_point_operations_so_far,
                     checkpointing_context,
                     train_data_iterator=train_data_iterator,
+                    callback_manager=callback_manager,
                 )
             print_datetime(f'exiting program after {train_time} minutes')
 
@@ -4625,6 +4649,7 @@ def checkpoint_and_decide_exit(
                 num_floating_point_operations_so_far,
                 checkpointing_context,
                 train_data_iterator=train_data_iterator,
+                callback_manager=callback_manager,
             )
         print_datetime(f'exiting program at iteration {iteration}')
 
@@ -5126,6 +5151,7 @@ def train(
                         num_floating_point_operations_so_far,
                         checkpointing_context,
                         train_data_iterator=train_data_iterator,
+                        callback_manager=callback_manager,
                     )
                     print_rank_0("[StepBatchsizeNumMicroBatchesCalculator] Checkpoint saved, "
                                  "exiting so the run can be relaunched at the new batch size.")
@@ -5275,6 +5301,7 @@ def train(
                 num_floating_point_operations_so_far,
                 checkpointing_context,
                 train_data_iterator=train_data_iterator,
+                callback_manager=callback_manager,
             )
         if should_exit:
             break
@@ -5546,6 +5573,7 @@ def train(
             num_floating_point_operations_so_far,
             checkpointing_context,
             train_data_iterator,
+            callback_manager=callback_manager,
         )
         if should_exit:
             break
