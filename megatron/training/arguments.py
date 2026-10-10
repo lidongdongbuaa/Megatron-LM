@@ -1161,8 +1161,6 @@ def validate_args(args, defaults={}):
     args.consumed_train_samples = 0
     args.skipped_train_samples = 0
     args.consumed_valid_samples = 0
-    if args.rl_use_sequence_packing:
-        args.consumed_train_bins = 0
 
     # Iteration-based training.
     # Skip these checks when skip_train is set: LR config is irrelevant.

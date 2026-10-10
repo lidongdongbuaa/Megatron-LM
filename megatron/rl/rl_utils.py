@@ -368,6 +368,7 @@ class RLRuntimeState:
         self.request_ledger = {}
         self.sequences_this_iteration_on_rank = 0
         self.latest_batch_num_sequences = 0
+        self.consumed_train_bins = 0
         # Durable rollout-bank state (rank 0 only). Recovered groups live on the
         # rollout agent, which treats them as per-environment producers.
         self.rollout_bank = None
