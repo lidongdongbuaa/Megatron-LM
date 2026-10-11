@@ -93,7 +93,7 @@ def _forward_backward_events(events: list[NvtxEvent]) -> list[NvtxEvent]:
     return [event for event in events if event.operation in ("forward", "backward")]
 
 
-def test_fsdp_training_hooks_emit_operation_nvtx_ranges(distributed_setup, monkeypatch):
+def test_training_operation_ranges(distributed_setup, monkeypatch):
     """A training step should annotate each FSDP lifecycle operation."""
     events: list[NvtxEvent] = []
     _setup_nvtx_recording(monkeypatch, events)
@@ -120,9 +120,7 @@ def test_fsdp_training_hooks_emit_operation_nvtx_ranges(distributed_setup, monke
     ]
 
 
-def test_fsdp_sibling_roots_emit_root_nvtx_ranges_after_training_step(
-    distributed_setup, monkeypatch
-):
+def test_sibling_root_ranges(distributed_setup, monkeypatch):
     """Independent FSDP roots should each emit root-labeled NVTX ranges."""
     events: list[NvtxEvent] = []
     _setup_nvtx_recording(monkeypatch, events)
@@ -146,7 +144,7 @@ def test_fsdp_sibling_roots_emit_root_nvtx_ranges_after_training_step(
     ]
 
 
-def test_fsdp_training_hooks_emit_stacked_nvtx_ranges(distributed_setup, monkeypatch):
+def test_nested_training_ranges(distributed_setup, monkeypatch):
     """Nested training hooks should emit concise NVTX ranges."""
     events: list[NvtxEvent] = []
     _setup_nvtx_recording(monkeypatch, events)
@@ -175,7 +173,7 @@ def test_fsdp_training_hooks_emit_stacked_nvtx_ranges(distributed_setup, monkeyp
     ]
 
 
-def test_fsdp_frozen_parameters_emit_balanced_backward_nvtx_range(distributed_setup, monkeypatch):
+def test_frozen_parameters_backward_range(distributed_setup, monkeypatch):
     """Frozen FSDP units should still balance backward NVTX ranges."""
     events: list[NvtxEvent] = []
     _setup_nvtx_recording(monkeypatch, events)
@@ -197,9 +195,7 @@ def test_fsdp_frozen_parameters_emit_balanced_backward_nvtx_range(distributed_se
     ]
 
 
-def test_fsdp_frozen_child_without_grad_inputs_skips_backward_nvtx_range(
-    distributed_setup, monkeypatch
-):
+def test_frozen_child_without_grad_inputs_skips_backward_range(distributed_setup, monkeypatch):
     """Frozen FSDP children outside the backward graph should not emit backward ranges."""
     events: list[NvtxEvent] = []
     _setup_nvtx_recording(monkeypatch, events)
@@ -228,7 +224,7 @@ def test_fsdp_frozen_child_without_grad_inputs_skips_backward_nvtx_range(
     ]
 
 
-def test_tied_child_parameters_complete_backward_once_per_cycle(distributed_setup, monkeypatch):
+def test_tied_parameters_backward_once_per_cycle(distributed_setup, monkeypatch):
     """Tied parameters should complete balanced backward ranges across training cycles."""
     events: list[NvtxEvent] = []
     _setup_nvtx_recording(monkeypatch, events)
