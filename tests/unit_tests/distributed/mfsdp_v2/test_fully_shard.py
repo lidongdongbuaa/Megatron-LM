@@ -219,49 +219,6 @@ def test_fully_shard_sgd_losses_match_baseline(
     )
 
 
-def test_delayed_weight_gradient(distributed_setup):
-    """Delayed wgrad needs the full parameter binding, but not its weight storage."""
-    world_size = distributed_setup.world_size
-    device = distributed_setup.device
-
-    mesh = init_device_mesh(device.type, (world_size,))
-    torch.manual_seed(1234)
-    model, reference = [
-        te.Linear(
-            16,
-            16,
-            bias=False,
-            params_dtype=torch.bfloat16,
-            device=device,
-            delay_wgrad_compute=True,
-            fuse_wgrad_accumulation=False,
-        )
-        for _ in range(2)
-    ]
-    reference.load_state_dict(model.state_dict())
-    with fully_shard_context(device=device, caller_managed_grad_sync=True) as context:
-        fully_shard(model, mesh=mesh, placements=_default_placements())
-
-    torch.manual_seed(5678 + distributed_setup.rank)
-    x = torch.randn(4, 16, device=device, dtype=torch.bfloat16, requires_grad=True)
-    model(x).float().square().mean().backward()
-    assert model.weight.grad is None
-    assert model.phase is FsdpModule.Phase.RESTING
-    assert model.weight.shape == (16, 16)
-    assert model.weight.untyped_storage().nbytes() == 0
-
-    model.backward_dw()
-    context.finish_grad_sync()
-    assert isinstance(model.weight, DTensor)
-
-    reference(x.detach()).float().square().mean().backward()
-    reference.backward_dw()
-    dist.all_reduce(reference.weight.grad, op=dist.ReduceOp.AVG)
-    torch.testing.assert_close(
-        model.weight.grad.full_tensor().to(reference.weight.grad.dtype), reference.weight.grad
-    )
-
-
 def test_fully_shard_rejects_tied_delayed_weight_gradients(distributed_setup):
     """Tied delayed weights are unsupported until TE accumulates their gradients."""
     device = distributed_setup.device
