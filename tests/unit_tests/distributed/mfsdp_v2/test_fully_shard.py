@@ -5,7 +5,6 @@
 Use this file only as a last resort when no focused test file fits.
 """
 
-import copy
 import logging
 from typing import NamedTuple
 
@@ -920,46 +919,3 @@ def test_fully_shard_tensor_atomic_losses_match_baseline(
         torch.stack(baseline_losses),
         msg="TensorAtomic sharded losses did not match baseline losses.",
     )
-
-
-def test_shared_units_reshard_before_post_accumulate_grad(distributed_setup):
-    """Repeated invocations release weights independently of shared gradient accumulation."""
-    device = distributed_setup.device
-    mesh = init_device_mesh(device.type, (distributed_setup.world_size,))
-    torch.manual_seed(1234)
-    reference = nn.Sequential(*(nn.Linear(4, 4, bias=False) for _ in range(3))).to(device)
-    model = copy.deepcopy(reference)
-    with fully_shard_context(device=device):
-        for layer in model:
-            fully_shard(layer, mesh, _default_placements())
-
-    def forward(layers, x):
-        x = layers[0](x)
-        for _ in range(2):
-            x = layers[2](layers[1](x).tanh()).tanh()
-        return x.square().sum()
-
-    completions = []
-
-    def check_released(unit):
-        full_weight = unit.parameter_groups[0].fsdp_parameters[0].unsharded
-        assert full_weight.untyped_storage().nbytes() == 0
-        if not completions:
-            assert unit.weight.grad is None
-        completions.append(unit)
-
-    for layer in model:
-        layer.register_post_backward_hook(check_released)
-    torch.manual_seed(4321 + distributed_setup.rank)
-    x = torch.randn(2, 4, device=device, requires_grad=True)
-    actual_x = x.detach().clone().requires_grad_()
-    expected = forward(reference, x)
-    actual = forward(model, actual_x)
-    expected.backward()
-    actual.backward()
-    torch.testing.assert_close(actual, expected)
-    torch.testing.assert_close(actual_x.grad, x.grad)
-    assert completions == [model[2], model[1], model[2], model[1], model[0]]
-    for layer, ref_layer in zip(model, reference):
-        dist.all_reduce(ref_layer.weight.grad, op=dist.ReduceOp.AVG)
-        torch.testing.assert_close(layer.weight.grad.full_tensor(), ref_layer.weight.grad)

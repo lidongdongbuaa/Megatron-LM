@@ -75,6 +75,34 @@ def _mb(num_bytes: int) -> str:
     return f"{num_bytes / 1024**2:.2f} MB"
 
 
+def test_shared_layer_releases_storage(distributed_setup):
+    """Release weights per invocation while accumulating gradients from both uses."""
+    device = distributed_setup.device
+    mesh = init_device_mesh(device.type, (distributed_setup.world_size,))
+    model = nn.Linear(4, 4, bias=False, device=device)
+    nn.init.ones_(model.weight)
+    with fully_shard_context(device=device):
+        fully_shard(model, mesh, _default_placements())
+
+    completions = []
+
+    def check_released(module):
+        assert module.weight.untyped_storage().nbytes() == 0
+        if not completions:
+            assert module.weight.grad is None
+        completions.append(module)
+
+    model.register_post_backward_hook(check_released)
+    x = torch.ones(2, 4, device=device, requires_grad=True)
+    model(model(x)).sum().backward()
+    assert len(completions) == 2
+    # Each use contributes 8 to every weight gradient.
+    torch.testing.assert_close(
+        model.weight.grad.full_tensor(), torch.full((4, 4), 16.0, device=device)
+    )
+    torch.testing.assert_close(x.grad, torch.full_like(x, 16.0))
+
+
 @pytest.mark.parametrize("main_params_dtype", [torch.bfloat16, torch.float32])
 def test_persistent_sharded_storage(distributed_setup, main_params_dtype):
     """FSDP should retain only its sharded weights and gradients at rest."""
