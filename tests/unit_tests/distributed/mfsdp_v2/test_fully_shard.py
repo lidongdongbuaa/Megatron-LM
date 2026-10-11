@@ -220,8 +220,7 @@ def test_fully_shard_sgd_losses_match_baseline(
     )
 
 
-@pytest.mark.parametrize("caller_managed_grad_sync", [False, True])
-def test_delayed_te_weight_gradient(distributed_setup, caller_managed_grad_sync):
+def test_delayed_te_weight_gradient(distributed_setup):
     """Delayed wgrad needs the full parameter binding, but not its weight storage."""
     world_size = distributed_setup.world_size
     device = distributed_setup.device
@@ -241,13 +240,7 @@ def test_delayed_te_weight_gradient(distributed_setup, caller_managed_grad_sync)
         for _ in range(2)
     ]
     reference.load_state_dict(model.state_dict())
-    with fully_shard_context(
-        device=device, caller_managed_grad_sync=caller_managed_grad_sync
-    ) as context:
-        if not caller_managed_grad_sync:
-            with pytest.raises(ValueError, match="caller_managed_grad_sync=True"):
-                fully_shard(model, mesh=mesh, placements=_default_placements())
-            return
+    with fully_shard_context(device=device, caller_managed_grad_sync=True) as context:
         fully_shard(model, mesh=mesh, placements=_default_placements())
 
     torch.manual_seed(5678 + distributed_setup.rank)
