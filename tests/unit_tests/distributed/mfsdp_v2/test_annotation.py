@@ -94,7 +94,7 @@ def _forward_backward_events(events: list[NvtxEvent]) -> list[NvtxEvent]:
 
 
 def test_training_operation_ranges(distributed_setup, monkeypatch):
-    """A training step should annotate each FSDP lifecycle operation."""
+    """A training step should annotate compute, communication, and weight storage release."""
     events: list[NvtxEvent] = []
     _setup_nvtx_recording(monkeypatch, events)
     model = nn.Linear(4, 4, bias=False).to(distributed_setup.device)
@@ -108,14 +108,16 @@ def test_training_operation_ranges(distributed_setup, monkeypatch):
         NvtxEvent("push", "<root>", "forward"),
         NvtxEvent("push", "<root>", "unshard"),
         NvtxEvent("pop", "<root>", "unshard"),
-        NvtxEvent("push", "<root>", "reshard"),
-        NvtxEvent("pop", "<root>", "reshard"),
+        NvtxEvent("push", "<root>", "release_unsharded_storage"),
+        NvtxEvent("pop", "<root>", "release_unsharded_storage"),
         NvtxEvent("pop", "<root>", "forward"),
         NvtxEvent("push", "<root>", "backward"),
         NvtxEvent("push", "<root>", "unshard"),
         NvtxEvent("pop", "<root>", "unshard"),
         NvtxEvent("push", "<root>", "reduce_gradients"),
         NvtxEvent("pop", "<root>", "reduce_gradients"),
+        NvtxEvent("push", "<root>", "release_unsharded_storage"),
+        NvtxEvent("pop", "<root>", "release_unsharded_storage"),
         NvtxEvent("pop", "<root>", "backward"),
     ]
 

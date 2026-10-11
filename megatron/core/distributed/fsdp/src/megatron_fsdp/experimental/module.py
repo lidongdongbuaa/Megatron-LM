@@ -575,9 +575,8 @@ class FsdpModule:
 
     def reshard(self) -> None:
         """Bind sharded parameters and release full parameter storage."""
-        with self._nvtx_range("reshard"):
-            self.bind_sharded_parameters()
-            self.release_unsharded_storage()
+        self.bind_sharded_parameters()
+        self.release_unsharded_storage()
 
     def bind_sharded_parameters(self) -> None:
         """Install sharded parameter references without changing storage."""
@@ -589,14 +588,15 @@ class FsdpModule:
 
         Clear the materialization event so the next unshard gathers fresh weights.
         """
-        allgather_stream = self.context.allgather_stream
-        allgather_stream.wait_stream(self.context.current_stream())
-        # Release on the all-gather stream where unsharded storage was allocated,
-        # so no record_stream() call is required for the storage.
-        with torch.cuda.stream(allgather_stream):
-            for group in self._parameter_groups:
-                group.release_unsharded_storage()
-            self._unshard_event = None
+        with self._nvtx_range("release_unsharded_storage"):
+            allgather_stream = self.context.allgather_stream
+            allgather_stream.wait_stream(self.context.current_stream())
+            # Release on the all-gather stream where unsharded storage was allocated,
+            # so no record_stream() call is required for the storage.
+            with torch.cuda.stream(allgather_stream):
+                for group in self._parameter_groups:
+                    group.release_unsharded_storage()
+                self._unshard_event = None
 
     def pre_backward(self) -> None:
         """Prepare full parameters and prefetch the next FsdpModule in backward order."""
