@@ -214,7 +214,7 @@ class FsdpContext:
 
     def post_backward(self) -> None:
         """Order current-stream consumers after this backward's gradient reductions."""
-        # Finish in reverse order to close nested backward NVTX ranges correctly.
+        # Finish children before parents to close nested backward NVTX ranges.
         while self._delayed_post_backward_callbacks:
             module, callback = self._delayed_post_backward_callbacks.pop()
             callback(module)
@@ -223,7 +223,7 @@ class FsdpContext:
         self._post_backward_hook_registered = False
 
     def register_post_backward_hook(self) -> None:
-        """Register one final callback for weight release and optional gradient sync.
+        """Register one final callback for deferred cleanup and optional gradient sync.
 
         Multiple FSDP roots can share this context. Waiting for the
         reduce-scatter stream in each root's ``post_backward()`` would prevent

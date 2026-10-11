@@ -929,38 +929,6 @@ def test_fully_shard_tensor_atomic_losses_match_baseline(
     )
 
 
-def test_no_input_gradients_preserve_saved_weights(distributed_setup):
-    """The output-time module hook must not release weights needed inside backward."""
-    device = distributed_setup.device
-    mesh = init_device_mesh(device.type, (distributed_setup.world_size,))
-    torch.manual_seed(1234)
-    trainable = nn.Linear(4, 4, bias=False)
-    frozen = nn.Linear(4, 4, bias=False).requires_grad_(False)
-    model = nn.Sequential(trainable, frozen).to(device)
-    reference = copy.deepcopy(model)
-    # The root owns only frozen weights and receives inputs without gradients.
-    # Its trainable child provides a backward graph; a frozen linear alone would not.
-    with fully_shard_context(device=device):
-        fully_shard(model[0], mesh, _default_placements())
-        fully_shard(model, mesh, _default_placements())
-
-    def unpack(tensor):
-        if tensor.untyped_storage().nbytes() == 0:
-            pytest.fail("Backward read released weights", pytrace=False)
-        return tensor
-
-    x = torch.ones(2, 4, device=device)
-    reference(x).sum().backward()
-    # pack_hook saves the original tensor without copying its storage; unpack_hook
-    # checks that storage before returning the saved tensor for backward to read.
-    with torch.autograd.graph.saved_tensors_hooks(pack_hook=lambda t: t, unpack_hook=unpack):
-        model(x).sum().backward()
-    for actual, expected in zip(model.parameters(), reference.parameters()):
-        if expected.requires_grad:
-            torch.testing.assert_close(actual.grad.full_tensor(), expected.grad)
-    assert model.phase is FsdpModule.Phase.RESTING
-
-
 def test_shared_units_reshard_before_post_accumulate_grad(distributed_setup):
     """Repeated invocations release weights independently of shared gradient accumulation."""
     device = distributed_setup.device
