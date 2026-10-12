@@ -575,8 +575,9 @@ class FsdpModule:
 
     def reshard(self) -> None:
         """Bind sharded parameters and release full parameter storage."""
-        self.bind_sharded_parameters()
-        self.release_unsharded_storage()
+        with self._nvtx_range("reshard"):
+            self.bind_sharded_parameters()
+            self.release_unsharded_storage()
 
     def bind_sharded_parameters(self) -> None:
         """Install sharded parameter references without changing storage."""
