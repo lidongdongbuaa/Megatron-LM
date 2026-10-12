@@ -85,18 +85,20 @@ def test_shared_layer_releases_storage(distributed_setup):
     with fully_shard_context(device=device):
         fully_shard(layer, mesh, _default_placements())
 
-    has_grad_at_completion = []
+    completions = []
 
-    def check_released(module):
+    def check_data_and_grad(module):
+        # Each invocation releases its weight storage when its backward finishes.
         assert module.weight.untyped_storage().nbytes() == 0
-        has_grad_at_completion.append(module.weight.grad is not None)
+        if not completions:
+            # The shared weight's gradient still awaits the other use's contribution.
+            assert module.weight.grad is None
+        completions.append(module)
 
-    layer.register_post_backward_hook(check_released)
+    layer.register_post_backward_hook(check_data_and_grad)
     x = torch.ones(2, 4, device=device, requires_grad=True)
     model(x).sum().backward()
-    assert len(has_grad_at_completion) == 2
-    # The first backward completion still awaits the other use's weight-gradient contribution.
-    assert not has_grad_at_completion[0]
+    assert len(completions) == 2
     # Each use contributes 8 to every weight gradient.
     torch.testing.assert_close(
         layer.weight.grad.full_tensor(), torch.full((4, 4), 16.0, device=device)
