@@ -128,22 +128,6 @@ _WIDE_RESIDUAL_ARG_DEFAULTS = (
 _deletion_processes = []
 
 
-def _maybe_compact_rollout_bank(iteration):
-    """Compact the rollout bank without making checkpointing depend eagerly on RL."""
-    from megatron.rl.rl_utils import maybe_compact_rollout_bank
-
-    maybe_compact_rollout_bank(iteration)
-
-
-def _register_rollout_bank_compaction(async_save_request, iteration):
-    """Compact the rollout bank after an asynchronous checkpoint becomes durable."""
-
-    def rollout_bank_finalize_fn(iteration=iteration):
-        _maybe_compact_rollout_bank(iteration)
-
-    async_save_request.add_finalize_fn(rollout_bank_finalize_fn)
-
-
 def finalize_deletion_processes(blocking=False):
     """Clean up deletion processes to prevent zombie processes.
 
@@ -1326,9 +1310,6 @@ def save_checkpoint(
         else:
             wandb_finalize_fn()
 
-    # Conversion tools register an inference container, which has no RL section.
-    rl_config = getattr(get_run_config(), "rl", None)
-    durable_rollout_bank = rl_config is not None and rl_config.rl_durable_rollout_bank
     if args.async_save:
         # Schedule logits flush AFTER the checkpoint request so the persistent
         # worker processes checkpoint preload first (unblocking the main
@@ -1370,14 +1351,6 @@ def save_checkpoint(
                 finalize_fns=logits_finalize_fns,
             )
 
-        if (
-            durable_rollout_bank
-            and async_save_request is not None
-            and (not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0)
-        ):
-            # Compact the bank once this async checkpoint becomes durable, so the
-            # bank's compacted-through T tracks the model checkpoint. Rank-0 only.
-            _register_rollout_bank_compaction(async_save_request, iteration)
         if on_saved is not None and async_save_request is not None:
             async_save_request.add_finalize_fn(on_saved)
         if async_save_request is not None:
@@ -1397,13 +1370,6 @@ def save_checkpoint(
         # before returning from this function.
         if torch.distributed.is_initialized():
             torch.distributed.barrier()
-
-        # Durable rollout bank: compact at the checkpoint boundary so the bank's
-        # compacted-through T tracks this (now durable) checkpoint. Only on sync
-        # saves; async saves compact in their durability finalize callback above.
-        # Rank-0 no-op otherwise.
-        if durable_rollout_bank:
-            _maybe_compact_rollout_bank(iteration)
 
         if on_saved is not None:
             on_saved()
