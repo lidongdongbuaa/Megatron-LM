@@ -118,6 +118,8 @@ def test_training_operation_ranges(distributed_setup, monkeypatch):
         NvtxEvent("pop", "<root>", "unshard"),
         NvtxEvent("push", "<root>", "reduce_gradients"),
         NvtxEvent("pop", "<root>", "reduce_gradients"),
+        # post_backward() releases storage without reshard(): full parameter bindings
+        # stay available for delayed wgrad. finish_grad_sync() restores sharded bindings.
         NvtxEvent("push", "<root>", "release_unsharded_storage"),
         NvtxEvent("pop", "<root>", "release_unsharded_storage"),
         NvtxEvent("pop", "<root>", "backward"),
