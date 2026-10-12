@@ -216,10 +216,6 @@ from .utils import (
 # dependency is unavailable; the ``has_*``/``HAVE_*`` flags gate later usage.
 try:
     from megatron.rl import rl_utils
-    from megatron.rl.rl_profiling import (
-        initialize_rl_profiler,
-        shutdown_rl_profiler,
-    )
 
     has_rl_utils = True
 except ImportError:
@@ -2115,30 +2111,6 @@ def pretrain(
     if wandb_writer:
         # Add job name to the wandb config to make it easier to run more singleton dependency jobs.
         wandb_writer.config.update({'slurm_job_name': os.getenv("SLURM_JOB_NAME", "N/A")})
-
-    # Initialize RL profiler if enabled
-    if cfg_container.rl.rl_profile:
-        # Determine output directory: use rl_profile_dir, or save/profiles, or ./profiles
-        profile_dir = cfg_container.rl.rl_profile_dir
-        if profile_dir is None:
-            if args.save:
-                profile_dir = os.path.join(args.save, 'profiles')
-            else:
-                profile_dir = './profiles'
-
-        # Generate run ID from job name or timestamp
-        run_id = os.getenv("SLURM_JOB_ID", None)
-        if run_id is None:
-            run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        initialize_rl_profiler(
-            output_dir=profile_dir,
-            run_id=run_id,
-            enabled=True,
-            log_to_wandb=(wandb_writer is not None),
-            log_to_tensorboard=(get_tensorboard_writer() is not None),
-        )
-        print_rank_0(f'[RLProfiler] Profiling enabled, output: {profile_dir}')
 
     # OTel: megatron.startup deliberately stays open into train() -- its
     # preamble (weight-hash check, sniff test, cuda-graph setup) is init, not
@@ -5321,11 +5293,6 @@ def train(
 
         if cfg.rl.perform_rl_step and cfg.rl.rl_use_sequence_packing:
             iteration_sequences = rl_utils.get_iteration_sequence_count(args)
-            # Track bins separately for packed mode
-            bin_count = (
-                _dp_world_size() * args.micro_batch_size * get_num_microbatches()
-            )
-            rl_utils.get_rl_runtime_state().consumed_train_bins += bin_count
         elif samples_seen_in_iteration is not None:
             iteration_sequences = samples_seen_in_iteration
         else:
@@ -5574,10 +5541,6 @@ def train(
         total_energy = energy_monitor.get_total()
         print_rank_0(f"Total training energy (GPU): {total_energy / 1e6:.3f} MJ")
         energy_monitor.shutdown()
-
-    # Shutdown RL profiler and export summary
-    if cfg.rl.rl_profile:
-        shutdown_rl_profiler()
 
     callback_manager.trigger("on_train_end")
 
