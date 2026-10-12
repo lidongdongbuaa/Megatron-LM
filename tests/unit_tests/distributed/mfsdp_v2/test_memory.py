@@ -87,7 +87,7 @@ def test_shared_layer_releases_storage(distributed_setup):
 
     completions = []
 
-    def check_data_and_grad(module):
+    def check_data_and_grad(module, _grad_input, _grad_output):
         # Each invocation releases its weight storage when its backward finishes.
         assert module.weight.untyped_storage().nbytes() == 0
         if not completions:
@@ -95,7 +95,8 @@ def test_shared_layer_releases_storage(distributed_setup):
             assert module.weight.grad is None
         completions.append(module)
 
-    layer.register_post_backward_hook(check_data_and_grad)
+    # Observe PyTorch's completion independently of MFSDP's hook wrapper.
+    layer.register_full_backward_hook(check_data_and_grad)
     x = torch.ones(2, 4, device=device, requires_grad=True)
     model(x).sum().backward()
     assert len(completions) == 2
