@@ -79,26 +79,27 @@ def test_shared_layer_releases_storage(distributed_setup):
     """Release weights per invocation while accumulating gradients from both uses."""
     device = distributed_setup.device
     mesh = init_device_mesh(device.type, (distributed_setup.world_size,))
-    model = nn.Linear(4, 4, bias=False, device=device)
-    nn.init.ones_(model.weight)
+    layer = nn.Linear(4, 4, bias=False, device=device)
+    nn.init.ones_(layer.weight)
+    model = nn.Sequential(layer, layer)
     with fully_shard_context(device=device):
-        fully_shard(model, mesh, _default_placements())
+        fully_shard(layer, mesh, _default_placements())
 
-    completions = []
+    has_grad_at_completion = []
 
     def check_released(module):
         assert module.weight.untyped_storage().nbytes() == 0
-        if not completions:
-            assert module.weight.grad is None
-        completions.append(module)
+        has_grad_at_completion.append(module.weight.grad is not None)
 
-    model.register_post_backward_hook(check_released)
+    layer.register_post_backward_hook(check_released)
     x = torch.ones(2, 4, device=device, requires_grad=True)
-    model(model(x)).sum().backward()
-    assert len(completions) == 2
+    model(x).sum().backward()
+    assert len(has_grad_at_completion) == 2
+    # The first backward completion still awaits the other use's weight-gradient contribution.
+    assert not has_grad_at_completion[0]
     # Each use contributes 8 to every weight gradient.
     torch.testing.assert_close(
-        model.weight.grad.full_tensor(), torch.full((4, 4), 16.0, device=device)
+        layer.weight.grad.full_tensor(), torch.full((4, 4), 16.0, device=device)
     )
     torch.testing.assert_close(x.grad, torch.full_like(x, 16.0))
 
