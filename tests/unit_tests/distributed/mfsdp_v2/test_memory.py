@@ -203,12 +203,6 @@ def test_training_step_peak_memory_bounds_full_size_buffers(
     torch.cuda.reset_peak_memory_stats(device)
     train_step()
     peak_delta = torch.cuda.max_memory_allocated(device) - resting_allocated
-    logger.info(
-        "Training-step peak above resting memory: rank=%s, unified_stream=%s, peak=%s",
-        rank,
-        unify_communication_stream,
-        _mb(peak_delta),
-    )
 
     # Backward keeps the current child and one prefetched child unsharded. Gradient
     # readiness can precede module completion, so the full wgrad and packed reduce-scatter
